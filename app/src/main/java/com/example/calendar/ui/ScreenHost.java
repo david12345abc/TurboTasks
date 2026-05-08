@@ -41,6 +41,10 @@ public interface ScreenHost {
 
     void saveProjectAndOpenHome(JSONObject response) throws Exception;
 
+    void openProfilePhotoPicker();
+
+    void openProjectImagePicker(ImageSelectionCallback callback);
+
     void runApi(ApiCall call, ApiSuccess success);
 
     void toast(String message);

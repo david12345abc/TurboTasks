@@ -2,11 +2,14 @@ package com.example.calendar;
 
 import android.app.Activity;
 import android.content.Context;
+import android.content.Intent;
+import android.net.Uri;
 import android.os.Bundle;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
+import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.ScrollView;
@@ -23,6 +26,7 @@ import java.util.concurrent.Executors;
 import com.example.calendar.ui.ApiCall;
 import com.example.calendar.ui.ApiSuccess;
 import com.example.calendar.ui.AppMenu;
+import com.example.calendar.ui.ImageSelectionCallback;
 import com.example.calendar.ui.ScreenHost;
 import com.example.calendar.ui.UiKit;
 import com.example.calendar.ui.admin.AdminScreen;
@@ -31,16 +35,21 @@ import com.example.calendar.ui.home.HomeScreen;
 import com.example.calendar.ui.project.ProjectScreen;
 
 public class MainActivity extends AppCompatActivity implements ScreenHost {
+    private static final int REQUEST_PROFILE_PHOTO = 4101;
+    private static final int REQUEST_PROJECT_IMAGE = 4102;
     private final ApiClient apiClient = new ApiClient();
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
     private SessionStore sessionStore;
     private LinearLayout root;
     private ProgressBar progressBar;
+    private FrameLayout blockingLoadingOverlay;
+    private ImageSelectionCallback projectImageSelectionCallback;
     private AuthScreen authScreen;
     private ProjectScreen projectScreen;
     private HomeScreen homeScreen;
     private AdminScreen adminScreen;
     private AppMenu appMenu;
+    private boolean projectGateOpen;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -58,6 +67,19 @@ public class MainActivity extends AppCompatActivity implements ScreenHost {
     protected void onDestroy() {
         executor.shutdownNow();
         super.onDestroy();
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == REQUEST_PROFILE_PHOTO && resultCode == RESULT_OK && data != null && data.getData() != null) {
+            uploadProfilePhoto(data.getData());
+        } else if (requestCode == REQUEST_PROJECT_IMAGE && resultCode == RESULT_OK && data != null && data.getData() != null) {
+            if (projectImageSelectionCallback != null) {
+                projectImageSelectionCallback.onImageSelected(data.getData());
+            }
+            projectImageSelectionCallback = null;
+        }
     }
 
     private void showStartScreen() {
@@ -141,12 +163,30 @@ public class MainActivity extends AppCompatActivity implements ScreenHost {
 
     @Override
     public void showAuthScreen(boolean registration) {
+        projectGateOpen = false;
         authScreen.show(registration);
     }
 
     @Override
     public void showProjectGateScreen() {
+        projectGateOpen = true;
         projectScreen.showProjectGate();
+    }
+
+    @Override
+    public void showHomeScreen() {
+        projectGateOpen = false;
+        progressBar = null;
+        homeScreen.show();
+    }
+
+    @Override
+    public void onBackPressed() {
+        if (projectGateOpen) {
+            showHomeScreen();
+            return;
+        }
+        super.onBackPressed();
     }
 
     @Override
@@ -156,13 +196,43 @@ public class MainActivity extends AppCompatActivity implements ScreenHost {
     }
 
     @Override
-    public void showHomeScreen() {
-        progressBar = null;
-        homeScreen.show();
+    public void openProfilePhotoPicker() {
+        Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
+        intent.setType("image/*");
+        startActivityForResult(Intent.createChooser(intent, "Выберите фото профиля"), REQUEST_PROFILE_PHOTO);
+    }
+
+    @Override
+    public void openProjectImagePicker(ImageSelectionCallback callback) {
+        projectImageSelectionCallback = callback;
+        Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
+        intent.setType("image/*");
+        startActivityForResult(Intent.createChooser(intent, "Выберите изображение проекта"), REQUEST_PROJECT_IMAGE);
+    }
+
+    private void uploadProfilePhoto(Uri photoUri) {
+        setBlockingLoading(true);
+        executor.execute(() -> {
+            try {
+                JSONObject user = apiClient.uploadProfilePhoto(this, photoUri, sessionStore.getUserToken());
+                runOnUiThread(() -> {
+                    setBlockingLoading(false);
+                    sessionStore.saveUser(sessionStore.getUserToken(), user);
+                    toast("Фото профиля обновлено");
+                    showHomeScreen();
+                });
+            } catch (Exception e) {
+                runOnUiThread(() -> {
+                    setBlockingLoading(false);
+                    showError(e);
+                });
+            }
+        });
     }
 
     @Override
     public void showAdminScreen() {
+        projectGateOpen = false;
         adminScreen.show();
     }
 
@@ -270,6 +340,36 @@ public class MainActivity extends AppCompatActivity implements ScreenHost {
     private void setLoading(boolean loading) {
         if (progressBar != null) {
             progressBar.setVisibility(loading ? View.VISIBLE : View.GONE);
+        }
+    }
+
+    private void setBlockingLoading(boolean loading) {
+        FrameLayout decor = (FrameLayout) getWindow().getDecorView();
+        if (loading) {
+            if (blockingLoadingOverlay != null) {
+                return;
+            }
+            blockingLoadingOverlay = new FrameLayout(this);
+            blockingLoadingOverlay.setBackgroundColor(0xB3000000);
+            blockingLoadingOverlay.setClickable(true);
+            blockingLoadingOverlay.setFocusable(true);
+
+            ProgressBar loader = new ProgressBar(this);
+            FrameLayout.LayoutParams loaderParams = new FrameLayout.LayoutParams(
+                    dp(64),
+                    dp(64),
+                    Gravity.CENTER
+            );
+            blockingLoadingOverlay.addView(loader, loaderParams);
+            decor.addView(blockingLoadingOverlay, new FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT
+            ));
+            return;
+        }
+        if (blockingLoadingOverlay != null) {
+            decor.removeView(blockingLoadingOverlay);
+            blockingLoadingOverlay = null;
         }
     }
 

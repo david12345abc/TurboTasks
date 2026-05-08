@@ -7,15 +7,19 @@ import org.json.JSONObject;
 
 public class SessionStore {
     private static final String PREFS = "calendar_session";
+    private static final String VISUAL_PREFS = "calendar_project_visuals";
     private static final String USER_TOKEN = "user_token";
     private static final String PROJECT_TOKEN = "project_token";
     private static final String USER_JSON = "user_json";
     private static final String PROJECT_JSON = "project_json";
+    private static final String PROJECT_FALLBACK_PREFIX = "project_fallback_";
 
     private final SharedPreferences preferences;
+    private final SharedPreferences visualPreferences;
 
     public SessionStore(Context context) {
         preferences = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        visualPreferences = context.getSharedPreferences(VISUAL_PREFS, Context.MODE_PRIVATE);
     }
 
     public String getUserToken() {
@@ -57,6 +61,16 @@ public class SessionStore {
 
     public void clearAll() {
         preferences.edit().clear().apply();
+    }
+
+    public String getProjectFallbackImage(int projectId) {
+        return visualPreferences.getString(PROJECT_FALLBACK_PREFIX + projectId, "");
+    }
+
+    public void saveProjectFallbackImage(int projectId, String imageAsset) {
+        visualPreferences.edit()
+                .putString(PROJECT_FALLBACK_PREFIX + projectId, imageAsset)
+                .apply();
     }
 
     private JSONObject readJson(String key) {

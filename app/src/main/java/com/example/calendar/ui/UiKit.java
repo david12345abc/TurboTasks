@@ -12,12 +12,13 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 
 public final class UiKit {
-    public static final int BACKGROUND = Color.rgb(15, 15, 16);
-    public static final int SURFACE = Color.rgb(27, 27, 30);
-    public static final int SURFACE_LIGHT = Color.rgb(37, 37, 41);
+    public static final int BACKGROUND = Color.rgb(5, 14, 31);
+    public static final int SURFACE = Color.rgb(10, 25, 51);
+    public static final int SURFACE_LIGHT = Color.rgb(20, 39, 75);
     public static final int TEXT_PRIMARY = Color.rgb(244, 244, 245);
-    public static final int TEXT_SECONDARY = Color.rgb(166, 166, 170);
-    public static final int BORDER_GRAY = Color.rgb(150, 150, 150);
+    public static final int TEXT_SECONDARY = Color.rgb(137, 153, 179);
+    public static final int BORDER_GRAY = Color.rgb(36, 55, 92);
+    public static final int BLUE = Color.rgb(56, 98, 255);
     public static final int WHITE = Color.WHITE;
 
     private UiKit() {
@@ -51,10 +52,11 @@ public final class UiKit {
         editText.setHint(hint);
         editText.setHintTextColor(TEXT_SECONDARY);
         editText.setTextColor(WHITE);
+        editText.setTextSize(14);
         editText.setTypeface(Typeface.create("sans-serif", Typeface.NORMAL));
         editText.setSingleLine(true);
         editText.setPadding(dp(context, 14), 0, dp(context, 14), 0);
-        editText.setBackground(stroke(Color.BLACK, BORDER_GRAY, dp(context, 1), dp(context, 10)));
+        editText.setBackground(stroke(Color.rgb(14, 30, 58), BORDER_GRAY, dp(context, 1), dp(context, 10)));
         if (password) {
             editText.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
         }
@@ -69,8 +71,8 @@ public final class UiKit {
 
     public static Button primaryButton(android.content.Context context, String text) {
         Button button = baseButton(context, text);
-        button.setTextColor(Color.BLACK);
-        button.setBackground(round(WHITE, dp(context, 24)));
+        button.setTextColor(WHITE);
+        button.setBackground(round(BLUE, dp(context, 14)));
         return button;
     }
 
@@ -91,7 +93,7 @@ public final class UiKit {
         LinearLayout view = new LinearLayout(context);
         view.setOrientation(LinearLayout.VERTICAL);
         view.setPadding(dp(context, 16), dp(context, 16), dp(context, 16), dp(context, 16));
-        view.setBackground(round(SURFACE, dp(context, 18)));
+        view.setBackground(stroke(SURFACE, BORDER_GRAY, dp(context, 1), dp(context, 18)));
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
