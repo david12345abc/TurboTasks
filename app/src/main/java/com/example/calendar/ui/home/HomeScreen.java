@@ -49,6 +49,7 @@ public class HomeScreen {
     private final ProjectScreen projectScreen;
     private final List<JSONObject> projects = new ArrayList<>();
     private LinearLayout projectsContainer;
+    private LinearLayout dashboardContainer;
     private EditText searchInput;
     private FrameLayout profileOverlay;
     private View profilePanel;
@@ -98,12 +99,14 @@ public class HomeScreen {
 
     private void showProjectDashboard(JSONObject project) {
         addProjectTopBar(project);
-        host.root().addView(dashboardCard("Today's Tasks", "5 active tasks for today"));
-        host.root().addView(dashboardCard("Team Activity", "12 updates from project members"));
-        host.root().addView(dashboardCard("Nearest Deadlines", "3 deadlines in the next 48 hours"));
-        host.root().addView(projectProgressCard(project));
+        addLeaveProjectLink();
+        dashboardContainer = new LinearLayout(host.context());
+        dashboardContainer.setOrientation(LinearLayout.VERTICAL);
+        dashboardContainer.addView(UiKit.text(host.context(), "Загрузка проекта...", 14, UiKit.TEXT_SECONDARY));
+        host.root().addView(dashboardContainer);
         host.addProgress();
         addBottomNavigation();
+        loadProjectDashboard();
     }
 
     private void addTopBar() {
@@ -150,33 +153,262 @@ public class HomeScreen {
         host.addSpace(14);
     }
 
-    private View dashboardCard(String title, String subtitle) {
+    private void addLeaveProjectLink() {
+        TextView leave = UiKit.text(host.context(), "Выйти из проекта", 14, 0xFFFF5A5F);
+        leave.setGravity(Gravity.RIGHT);
+        leave.setTypeface(Typeface.create("sans-serif-medium", Typeface.BOLD));
+        leave.setOnClickListener(v -> leaveProject());
+        host.root().addView(leave);
+        host.addSpace(10);
+    }
+
+    private void leaveProject() {
+        host.executor().execute(() -> {
+            try {
+                host.apiClient().delete(
+                        "/api/calendar/projects/current/leave/",
+                        host.sessionStore().getUserToken(),
+                        host.sessionStore().getProjectToken()
+                );
+                host.activity().runOnUiThread(() -> {
+                    host.sessionStore().clearProject();
+                    host.toast("Вы вышли из проекта");
+                    host.showHomeScreen();
+                });
+            } catch (Exception e) {
+                host.activity().runOnUiThread(() -> host.showError(e));
+            }
+        });
+    }
+
+    private void loadProjectDashboard() {
+        host.runApi(() -> (JSONObject) host.apiClient().get(
+                "/api/calendar/projects/current/dashboard/",
+                host.sessionStore().getUserToken(),
+                host.sessionStore().getProjectToken()
+        ), this::renderProjectDashboard);
+    }
+
+    private void renderProjectDashboard(JSONObject dashboard) {
+        if (dashboardContainer == null) {
+            return;
+        }
+        dashboardContainer.removeAllViews();
+        dashboardContainer.addView(platformHeader(dashboard));
+        dashboardContainer.addView(todayTasksCard(dashboard.optJSONArray("today_tasks")));
+        dashboardContainer.addView(statisticsCard(dashboard.optJSONObject("statistics")));
+        dashboardContainer.addView(activityCard(dashboard.optJSONArray("activity")));
+    }
+
+    private View platformHeader(JSONObject dashboard) {
         LinearLayout card = host.card();
-        TextView titleView = UiKit.text(host.context(), title, 17, UiKit.WHITE);
-        titleView.setTypeface(Typeface.create("sans-serif-medium", Typeface.BOLD));
-        card.addView(titleView);
-        card.addView(UiKit.text(host.context(), subtitle, 12, UiKit.TEXT_SECONDARY));
+        card.setPadding(host.dp(14), host.dp(14), host.dp(14), host.dp(12));
+
+        LinearLayout row = new LinearLayout(host.context());
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+
+        ImageView logo = appLogo();
+        row.addView(logo, new LinearLayout.LayoutParams(host.dp(38), host.dp(38)));
+
+        LinearLayout text = new LinearLayout(host.context());
+        text.setOrientation(LinearLayout.VERTICAL);
+        text.setPadding(host.dp(10), 0, 0, 0);
+        JSONObject project = dashboard.optJSONObject("project");
+        TextView title = UiKit.text(host.context(), project == null ? "TurboTasks Platform" : project.optString("title", "TurboTasks Platform"), 15, UiKit.WHITE);
+        title.setTypeface(Typeface.create("sans-serif-medium", Typeface.BOLD));
+        text.addView(title);
+
+        LinearLayout users = new LinearLayout(host.context());
+        users.setGravity(Gravity.CENTER_VERTICAL);
+        JSONArray members = dashboard.optJSONArray("recent_members");
+        if (members != null) {
+            for (int i = 0; i < members.length(); i++) {
+                users.addView(userAvatar(members.optJSONObject(i), 24));
+            }
+        }
+        TextView count = UiKit.text(host.context(), dashboard.optInt("members_count", 0) + " members", 11, UiKit.TEXT_SECONDARY);
+        count.setPadding(host.dp(6), 0, 0, 0);
+        users.addView(count);
+        text.addView(users);
+
+        row.addView(text, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+        card.addView(row);
         return card;
     }
 
-    private View projectProgressCard(JSONObject project) {
+    private View todayTasksCard(JSONArray tasks) {
         LinearLayout card = host.card();
-        TextView titleView = UiKit.text(host.context(), "Project Progress", 17, UiKit.WHITE);
-        titleView.setTypeface(Typeface.create("sans-serif-medium", Typeface.BOLD));
-        card.addView(titleView);
+        LinearLayout header = new LinearLayout(host.context());
+        header.setOrientation(LinearLayout.HORIZONTAL);
+        header.setGravity(Gravity.CENTER_VERTICAL);
+        TextView title = UiKit.text(host.context(), "Today's Tasks", 16, UiKit.WHITE);
+        title.setTypeface(Typeface.create("sans-serif-medium", Typeface.BOLD));
+        header.addView(title, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+        header.addView(UiKit.text(host.context(), "View all", 12, UiKit.BLUE));
+        card.addView(header);
 
-        int progress = generatedProgress(project);
-        ProgressBar progressBar = new ProgressBar(host.context(), null, android.R.attr.progressBarStyleHorizontal);
-        progressBar.setMax(100);
-        progressBar.setProgress(progress);
-        LinearLayout.LayoutParams progressParams = new LinearLayout.LayoutParams(
+        ScrollView scrollView = new ScrollView(host.context());
+        LinearLayout list = new LinearLayout(host.context());
+        list.setOrientation(LinearLayout.VERTICAL);
+        scrollView.addView(list);
+        LinearLayout.LayoutParams scrollParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
-                host.dp(8)
+                host.dp(210)
         );
-        progressParams.setMargins(0, host.dp(12), 0, host.dp(6));
-        card.addView(progressBar, progressParams);
-        card.addView(UiKit.text(host.context(), progress + "% completed", 12, UiKit.TEXT_SECONDARY));
+        scrollParams.setMargins(0, host.dp(8), 0, 0);
+        card.addView(scrollView, scrollParams);
+
+        if (tasks == null || tasks.length() == 0) {
+            list.addView(UiKit.text(host.context(), "На сегодня задач нет", 13, UiKit.TEXT_SECONDARY));
+            return card;
+        }
+        for (int i = 0; i < tasks.length(); i++) {
+            JSONObject task = tasks.optJSONObject(i);
+            if (task != null) {
+                list.addView(taskRow(task));
+            }
+        }
         return card;
+    }
+
+    private View taskRow(JSONObject task) {
+        LinearLayout row = new LinearLayout(host.context());
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(host.dp(10), host.dp(9), host.dp(10), host.dp(9));
+        row.setBackground(UiKit.round(Color.rgb(12, 28, 56), host.dp(14)));
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        );
+        params.setMargins(0, host.dp(5), 0, host.dp(5));
+        row.setLayoutParams(params);
+
+        LinearLayout text = new LinearLayout(host.context());
+        text.setOrientation(LinearLayout.VERTICAL);
+        TextView taskTitle = UiKit.text(host.context(), task.optString("title", "Task"), 13, UiKit.WHITE);
+        taskTitle.setTypeface(Typeface.create("sans-serif-medium", Typeface.BOLD));
+        text.addView(taskTitle);
+        text.addView(UiKit.text(host.context(), taskMeta(task), 11, UiKit.TEXT_SECONDARY));
+        row.addView(text, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+
+        LinearLayout avatars = new LinearLayout(host.context());
+        avatars.setGravity(Gravity.CENTER_VERTICAL);
+        avatars.addView(userAvatar(task.optJSONObject("author"), 26));
+        TextView arrow = UiKit.text(host.context(), "›", 18, UiKit.TEXT_SECONDARY);
+        arrow.setGravity(Gravity.CENTER);
+        avatars.addView(arrow, new LinearLayout.LayoutParams(host.dp(16), host.dp(26)));
+        avatars.addView(userAvatar(task.optJSONObject("assignee"), 26));
+        row.addView(avatars);
+        return row;
+    }
+
+    private String taskMeta(JSONObject task) {
+        String importance = task.optString("importance", "normal");
+        String deadline = task.optString("deadline", "");
+        return importance + (deadline.isEmpty() || "null".equals(deadline) ? "" : " • Due " + deadline.substring(0, Math.min(10, deadline.length())));
+    }
+
+    private View statisticsCard(JSONObject stats) {
+        LinearLayout wrapper = new LinearLayout(host.context());
+        wrapper.setOrientation(LinearLayout.VERTICAL);
+        TextView title = UiKit.text(host.context(), "Statistics", 16, UiKit.WHITE);
+        title.setTypeface(Typeface.create("sans-serif-medium", Typeface.BOLD));
+        wrapper.addView(title);
+
+        LinearLayout row = new LinearLayout(host.context());
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.addView(statBox("Completed", String.valueOf(stats == null ? 0 : stats.optInt("completed")), 0xFF45D483), statParams(0, 4));
+        row.addView(statBox("In Progress", String.valueOf(stats == null ? 0 : stats.optInt("in_progress")), UiKit.BLUE), statParams(4, 4));
+        row.addView(statBox("Overdue", String.valueOf(stats == null ? 0 : stats.optInt("overdue")), 0xFFFF5A5F), statParams(4, 4));
+        row.addView(statBox("Productivity", (stats == null ? 0 : stats.optInt("productivity")) + "%", 0xFF8E7CFF), statParams(4, 0));
+        wrapper.addView(row);
+        return wrapper;
+    }
+
+    private View statBox(String label, String value, int color) {
+        LinearLayout box = new LinearLayout(host.context());
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(host.dp(8), host.dp(8), host.dp(8), host.dp(8));
+        box.setBackground(UiKit.round(Color.rgb(12, 28, 56), host.dp(12)));
+        box.addView(UiKit.text(host.context(), label, 10, UiKit.TEXT_SECONDARY));
+        TextView valueView = UiKit.text(host.context(), value, 18, color);
+        valueView.setTypeface(Typeface.create("sans-serif", Typeface.BOLD));
+        box.addView(valueView);
+        return box;
+    }
+
+    private LinearLayout.LayoutParams statParams(int leftDp, int rightDp) {
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, host.dp(70), 1);
+        params.setMargins(host.dp(leftDp), host.dp(8), host.dp(rightDp), host.dp(8));
+        return params;
+    }
+
+    private View activityCard(JSONArray activities) {
+        LinearLayout card = host.card();
+        TextView title = UiKit.text(host.context(), "Activity", 16, UiKit.WHITE);
+        title.setTypeface(Typeface.create("sans-serif-medium", Typeface.BOLD));
+        card.addView(title);
+        if (activities == null || activities.length() == 0) {
+            card.addView(UiKit.text(host.context(), "Активности пока нет", 13, UiKit.TEXT_SECONDARY));
+            return card;
+        }
+        int limit = Math.min(activities.length(), 5);
+        for (int i = 0; i < limit; i++) {
+            JSONObject item = activities.optJSONObject(i);
+            if (item != null) {
+                card.addView(activityRow(item));
+            }
+        }
+        return card;
+    }
+
+    private View activityRow(JSONObject activity) {
+        LinearLayout row = new LinearLayout(host.context());
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(0, host.dp(6), 0, host.dp(6));
+        row.addView(userAvatar(activity.optJSONObject("actor"), 32));
+        LinearLayout text = new LinearLayout(host.context());
+        text.setOrientation(LinearLayout.VERTICAL);
+        text.setPadding(host.dp(10), 0, 0, 0);
+        text.addView(UiKit.text(host.context(), activity.optString("message", "Project activity"), 13, UiKit.WHITE));
+        text.addView(UiKit.text(host.context(), activity.optString("created_at", ""), 10, UiKit.TEXT_SECONDARY));
+        row.addView(text, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+        return row;
+    }
+
+    private FrameLayout userAvatar(JSONObject user, int sizeDp) {
+        FrameLayout avatar = new FrameLayout(host.context());
+        avatar.setBackground(UiKit.round(Color.rgb(28, 50, 92), host.dp(sizeDp / 2)));
+        String photoUrl = user == null ? "" : user.optString("photo_url", "");
+        if (!photoUrl.isEmpty() && !"null".equals(photoUrl)) {
+            ImageView image = new ImageView(host.context());
+            image.setScaleType(ImageView.ScaleType.CENTER_CROP);
+            avatar.addView(image, new FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT
+            ));
+            loadRemoteImage(image, photoUrl, true);
+        } else {
+            TextView initial = UiKit.text(host.context(), userInitial(user), Math.max(10, sizeDp / 3), UiKit.WHITE);
+            initial.setGravity(Gravity.CENTER);
+            initial.setTypeface(Typeface.create("sans-serif", Typeface.BOLD));
+            avatar.addView(initial, new FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT
+            ));
+        }
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(host.dp(sizeDp), host.dp(sizeDp));
+        params.setMargins(0, 0, -host.dp(5), 0);
+        avatar.setLayoutParams(params);
+        return avatar;
+    }
+
+    private String userInitial(JSONObject user) {
+        String name = user == null ? "" : user.optString("full_name", user.optString("nickname", ""));
+        return name.isEmpty() ? "?" : name.substring(0, 1).toUpperCase(Locale.ROOT);
     }
 
     private TextView topIcon(String text) {
@@ -262,10 +494,21 @@ public class HomeScreen {
             } catch (Exception e) {
                 host.activity().runOnUiThread(() -> {
                     list.removeAllViews();
-                    list.addView(UiKit.text(host.context(), e.getMessage(), 13, 0xFFFF5A5F));
+                    list.addView(UiKit.text(host.context(), friendlyNotificationError(e), 13, 0xFFFF5A5F));
                 });
             }
         });
+    }
+
+    private String friendlyNotificationError(Exception e) {
+        String message = e.getMessage();
+        if (message == null || message.trim().isEmpty()) {
+            return "Не удалось загрузить уведомления.";
+        }
+        if (message.contains("миграции") || message.contains("backend")) {
+            return message;
+        }
+        return "Не удалось загрузить уведомления. Проверьте backend и миграции базы данных.";
     }
 
     private void renderNotifications(LinearLayout list, JSONArray notifications) {
@@ -749,12 +992,12 @@ public class HomeScreen {
 
         ImageView image = new ImageView(host.context());
         image.setScaleType(ImageView.ScaleType.CENTER_CROP);
-        image.setBackground(UiKit.round(colorForProject(project.optInt("id")), host.dp(12)));
+        image.setBackground(UiKit.round(colorForProject(project.optInt("id")), host.dp(22)));
         String imageUrl = project.optString("image_url", "");
         if (!imageUrl.isEmpty() && !"null".equals(imageUrl)) {
             loadProjectImage(image, imageUrl);
         } else {
-            loadAssetImage(image, fallbackImageForProject(project));
+            loadAssetImage(image, fallbackImageForProject(project), true);
         }
         row.addView(image, new LinearLayout.LayoutParams(host.dp(44), host.dp(44)));
 
@@ -917,7 +1160,7 @@ public class HomeScreen {
     }
 
     private void loadProjectImage(ImageView target, String imageUrl) {
-        loadRemoteImage(target, imageUrl, false);
+        loadRemoteImage(target, imageUrl, true);
     }
 
     private void loadRemoteImage(ImageView target, String imageUrl, boolean circular) {
@@ -964,10 +1207,18 @@ public class HomeScreen {
     }
 
     private void loadAssetImage(ImageView target, String assetName) {
+        loadAssetImage(target, assetName, false);
+    }
+
+    private void loadAssetImage(ImageView target, String assetName, boolean circular) {
         host.executor().execute(() -> {
             try (InputStream inputStream = host.context().getAssets().open(assetName)) {
                 Bitmap bitmap = BitmapFactory.decodeStream(inputStream);
-                target.post(() -> target.setImageBitmap(bitmap));
+                if (circular && bitmap != null) {
+                    bitmap = circleBitmap(bitmap);
+                }
+                Bitmap finalBitmap = bitmap;
+                target.post(() -> target.setImageBitmap(finalBitmap));
             } catch (Exception ignored) {
                 target.post(() -> target.setImageDrawable(null));
             }

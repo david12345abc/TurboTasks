@@ -206,8 +206,12 @@ public class ApiClient {
         if (text == null || text.trim().isEmpty()) {
             return "Ошибка API: " + code;
         }
+        String trimmed = text.trim();
+        if (trimmed.startsWith("<!DOCTYPE") || trimmed.startsWith("<html") || trimmed.contains("Traceback")) {
+            return "Ошибка сервера: " + code + ". Проверьте backend и миграции базы данных.";
+        }
         try {
-            JSONObject json = new JSONObject(text);
+            JSONObject json = new JSONObject(trimmed);
             if (json.has("detail")) {
                 return json.getString("detail");
             }

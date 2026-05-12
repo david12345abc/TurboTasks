@@ -52,7 +52,11 @@ public class AppMenu {
         });
         addMenuItem(menu, "Проект", () -> {
             hide(menu);
-            host.showProjectGateScreen();
+            if (host.sessionStore().getProject() == null) {
+                host.showProjectGateScreen();
+            } else {
+                host.showHomeScreen();
+            }
         });
         if (host.isAppAdmin()) {
             addMenuItem(menu, "Страница администратора", () -> {
